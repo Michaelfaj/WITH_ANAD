@@ -31,9 +31,31 @@ INSERT INTO PAYMENTS (payment_id, loan_id, amount, type, payment_timestamp) VALU
     (2, 2, 100, 'repayment', '2022-10-01 05:05:12'),
     (3, 1, 1000, 'repayment', '2022-10-01 05:31:01'),
     (4, 2, 10, 'repayment', '2022-11-01 03:11:01');
+    
+    
+    
+    
+-- 1. What is the average time between disbursement and first repayment for each customer, and who has the longest repayment delay?
+WITH FirstRepayment AS (
+    SELECT
+        l.loan_id,
+        l.user_id,
+        l.disbursement_date,
+        MIN(p.payment_timestamp) AS first_repayment_date
+    FROM loans l
+    LEFT JOIN payments p ON l.loan_id = p.loan_id AND p.type = 'repayment'
+    GROUP BY l.loan_id, l.user_id, l.disbursement_date
+)
+SELECT
+    loan_id,
+    user_id,
+    DATEDIFF(day, disbursement_date, first_repayment_date) AS days_to_first_repayment
+FROM FirstRepayment
+ORDER BY days_to_first_repayment DESC;
+
 
     
--- 1. Question: Calculate the Total Loan Portfolio Value and Delinquency Rate
+-- 2. Question: Calculate the Total Loan Portfolio Value and Delinquency Rate
 -- Calculate the total loan portfolio value and the delinquency rate, 
 -- where the delinquency rate is defined as the percentage of loans with no repayments to the total loan portfolio.
 
@@ -68,7 +90,7 @@ group by l.loan_id, total_amount_disbursed;
 
 
 
--- 2 Due to limited bandwidth, the collection recovery team can only call 1000 users a day, to help the team generate a 
+-- 3 Due to limited bandwidth, the collection recovery team can only call 1000 users a day, to help the team generate a 
 -- priority list for the current date based on the following criteria from the table created in the above question.
 
      -- 2.1	Pick only the user_id-loan_id combination where latest repayment day is more than 30 days prior to current date
@@ -115,7 +137,7 @@ WHERE last_paid_before_n_days >= 30 OR
 
 
 
--- . 3. Write a query to create a table that will have total outstanding balance on each day from disbursement day till 
+-- . 4. Write a query to create a table that will have total outstanding balance on each day from disbursement day till 
 -- last repayment date of the loan for each user - loan combination. Assume that all the loan tenure is for 60 days only.
 
      -- 3.1.	Total outstanding balance at each day                                                                        
