@@ -35,7 +35,7 @@ INSERT INTO PAYMENTS (payment_id, loan_id, amount, type, payment_timestamp) VALU
     
     
     
--- 1. What is the average time between disbursement and first repayment for each customer, and who has the longest repayment delay?
+-- 1. What is the average time between disbursement and first repayment for each customer, and who has the longest first repayment delay?
 WITH FirstRepayment AS (
     SELECT
         l.loan_id,
@@ -52,8 +52,6 @@ SELECT
     DATEDIFF(day, disbursement_date, first_repayment_date) AS days_to_first_repayment
 FROM FirstRepayment
 ORDER BY days_to_first_repayment DESC;
-
-
     
 -- 2. Question: Calculate the Total Loan Portfolio Value and Delinquency Rate
 -- Calculate the total loan portfolio value and the delinquency rate, 
@@ -76,21 +74,47 @@ SELECT
     ROUND((SUM(is_delinquent) / COUNT(*)) * 100, 2) AS delinquency_rate_percentage
 FROM loan_repayment_status;
 
--- outstanding balance
-
-SELECT 
-        l.loan_id,
-        total_amount_disbursed as disbursed, 
-        sum(CASE when p.type = 'repayment' then amount else 0 end) as repayed,
-        ROUND((sum(CASE when p.type = 'repayment' then amount else 0 end)/  sum(total_amount_disbursed)),2) * 100 as repayment_rate_in_percentage,
-        ((total_amount_disbursed) - sum(CASE when p.type = 'repayment' then amount else 0 end)) as outstanding_balance
-FROM loans l
-LEFT JOIN payments p on l.loan_id = p.loan_id
-group by l.loan_id, total_amount_disbursed;
 
 
+-- 3	Are there customers who have missed their first scheduled repayment date, and if so, how many days overdue are they?
 
--- 3 Due to limited bandwidth, the collection recovery team can only call 1000 users a day, to help the team generate a 
+-- Step 1: Define the expected first repayment date for each loan, 30 days after disbursement
+WITH ExpectedRepayment AS (
+    SELECT
+        loan_id,                                       -- Unique loan identifier
+        user_id,                                       -- Unique user identifier associated with the loan
+        DATEADD(day, 30, disbursement_date) AS expected_first_payment_date  -- Expected first payment date, 30 days from disbursement
+    FROM loans
+),
+-- Step 2: Determine the actual first repayment date for each loan and identify missed repayments
+MissedRepayment AS (
+    SELECT
+        e.user_id,                                     -- User ID
+        e.loan_id,                                     -- Loan ID
+        e.expected_first_payment_date,                 -- Expected first payment date (from ExpectedRepayment CTE)
+        MIN(p.payment_timestamp) AS actual_first_payment_date  -- Actual first repayment date (if any)
+    FROM ExpectedRepayment e
+    LEFT JOIN payments p 
+        ON e.loan_id = p.loan_id                       -- Join on loan_id to match payments to loans
+        AND p.type = 'repayment'                       -- Only consider "repayment" type payments
+    GROUP BY e.user_id, e.loan_id, e.expected_first_payment_date
+    HAVING actual_first_payment_date IS NULL           -- Identify cases with no repayments at all
+       OR actual_first_payment_date > e.expected_first_payment_date  -- Or where repayment was made after the expected date
+)
+-- Step 3: Select and calculate the overdue details for each loan with missed or delayed repayment
+SELECT
+    user_id,                                           -- User ID
+    loan_id,                                           -- Loan ID
+    expected_first_payment_date,                       -- Expected first payment date
+    actual_first_payment_date,                         -- Actual payment date (NULL if none)
+    DATEDIFF(day, expected_first_payment_date, COALESCE(actual_first_payment_date, CURRENT_DATE)) AS days_overdue  
+                                                       -- Days overdue (difference between expected and actual, or to current date if missed)
+FROM MissedRepayment
+ORDER BY days_overdue DESC;                            -- Order results by days overdue, descending (longest overdue first)
+
+
+
+-- 4 Due to limited bandwidth, the collection recovery team can only call 1000 users a day, to help the team generate a 
 -- priority list for the current date based on the following criteria from the table created in the above question.
 
      -- 2.1	Pick only the user_id-loan_id combination where latest repayment day is more than 30 days prior to current date
@@ -137,13 +161,13 @@ WHERE last_paid_before_n_days >= 30 OR
 
 
 
--- . 4. Write a query to create a table that will have total outstanding balance on each day from disbursement day till 
+-- . 5. Write a query to create a table that will have total outstanding balance on each day from disbursement day till 
 -- last repayment date of the loan for each user - loan combination. Assume that all the loan tenure is for 60 days only.
 
-     -- 3.1.	Total outstanding balance at each day                                                                        
+     -- 5.1.	Total outstanding balance at each day                                                                        
      -- Definition of Total outstanding balance = total disbursed amount (type=’disbursement’ in PAYMENTS table) - total repaid amount (type=’repayment’ in PAYMENTS table)
 
-     -- 3.2.	Latest repayment date at each day
+     -- 5.2.	Latest repayment date at each day
 
 
 -- Step 1: Generate a sequence of numbers (1 to 60) to simulate daily intervals
